@@ -1,0 +1,25 @@
+FROM nginx
+
+###########################################################################
+# Variables:
+###########################################################################
+ARG UID=1000
+ARG GID=1000
+ARG USER_NAME=${USER_NAME}
+ARG USER_GROUP=${USER_GROUP}
+
+###########################################################################
+# Create  non-root user:
+###########################################################################
+RUN groupadd -f -g 101 nginx
+RUN groupadd -f -g $GID $USER_GROUP
+RUN useradd -u $UID -m -g $USER_GROUP -G $USER_GROUP,nginx $USER_NAME
+RUN usermod -p "*" $USER_GROUP -s /bin/bash
+
+COPY entrypoint.sh /entrypoint.sh
+
+WORKDIR /var/www
+
+EXPOSE 80 443
+
+CMD ["nginx", "-g", "daemon off;"]

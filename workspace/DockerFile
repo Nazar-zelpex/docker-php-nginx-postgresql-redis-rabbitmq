@@ -1,0 +1,197 @@
+FROM php:7.3-fpm
+
+USER root
+
+###########################################################################
+# Variables:
+###########################################################################
+ARG UID=1000
+ARG GID=1000
+ARG USER_NAME=${USER_NAME}
+ARG USER_GROUP=${USER_GROUP}
+
+###########################################################################
+# Create  non-root user:
+###########################################################################
+RUN groupadd -f -g 101 nginx
+RUN groupadd -f -g $GID $USER_GROUP
+RUN useradd -u $UID -m -g $USER_GROUP -G $USER_GROUP,nginx $USER_NAME
+RUN usermod -p "*" $USER_GROUP -s /bin/bash
+
+###########################################################################
+# Add basic tooling:
+###########################################################################
+RUN rm -rf /var/lib/apt/lists/* && \
+    apt-get clean && \
+    apt-get update && \
+    apt-get install --no-install-recommends --fix-missing --no-install-suggests -q -y \
+        software-properties-common \
+        dirmngr \
+        lsb-release \
+        curl \
+        inetutils-syslogd \
+        wget \
+        gnupg2 \
+        ca-certificates apt-transport-https
+
+RUN apt-get update
+
+###########################################################################
+# Sudo:
+###########################################################################
+RUN apt-get install --fix-missing --no-install-recommends --no-install-suggests -q -y sudo
+RUN echo "${USER_NAME} ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+###########################################################################
+# Libs:
+###########################################################################
+
+RUN apt-get install --fix-missing --no-install-recommends -q -y \
+    apt-utils \
+    build-essential \
+    ffmpeg \
+    git \
+    imagemagick \
+    jpegoptim optipng pngquant gifsicle \
+    libasound2 \
+    libcurl4-openssl-dev \
+    libfreetype6-dev \
+    libgconf-2-4 \
+    libgtk-3-dev \
+    libjpeg62-turbo-dev \
+    libicu-dev \
+    libmagickwand-dev \
+    libmcrypt-dev \
+    libnotify-dev \
+    libnss3 \
+    libpng-dev \
+    libssl-dev \
+    libwebp-dev \
+    libxi6 \
+    libxml2-dev \
+    libxslt-dev \
+    libxss1 \
+    libzip-dev \
+    locales \
+    nano \
+    openssh-client \
+    python-pip \
+    python-setuptools \
+    rsync \
+    ssh-client \
+    sudo \
+    unzip \
+    xvfb \
+    zip
+
+###########################################################################
+# Install extensions
+###########################################################################
+
+RUN docker-php-ext-install bcmath curl exif intl mbstring mysqli pcntl pdo_mysql soap xsl zip sockets
+
+RUN docker-php-ext-configure gd --with-gd --with-freetype-dir=/usr/include/ --with-jpeg-dir=/usr/include/ --with-png-dir=/usr/include/ \
+    && docker-php-ext-install gd \
+    && pecl install zip && docker-php-ext-enable zip \
+    && pecl install ast && docker-php-ext-enable ast \
+    && pecl install imagick && docker-php-ext-enable imagick \
+    && pecl install redis && docker-php-ext-enable redis
+
+# Install Postgres PDO
+RUN apt-get install -y --fix-missing libpq-dev \
+    && docker-php-ext-configure pgsql -with-pgsql=/usr/local/pgsql \
+    && docker-php-ext-install pdo pdo_pgsql pgsql
+
+# Install xdebug
+RUN pecl install xdebug-2.7.0beta1 redis-4.2.0 \
+    && docker-php-ext-enable xdebug
+
+###########################################################################
+# Set Timezone
+###########################################################################
+
+ARG TZ=UTC
+ENV TZ ${TZ}
+
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+###########################################################################
+# Chrome and Chrome driver for Laravel Dusk testing
+###########################################################################
+
+WORKDIR /tmp
+
+RUN curl -sS -o - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
+RUN echo "deb [arch=amd64]  http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list
+RUN apt-get -y update
+RUN apt-get -y install google-chrome-stable
+
+RUN wget https://chromedriver.storage.googleapis.com/2.41/chromedriver_linux64.zip
+RUN unzip chromedriver_linux64.zip
+RUN mv chromedriver /usr/bin/chromedriver
+RUN chown root:root /usr/bin/chromedriver
+RUN chmod +x /usr/bin/chromedriver
+
+###########################################################################
+# Composer
+###########################################################################
+
+WORKDIR /var/www
+
+# Install composer
+ENV COMPOSER_HOME /home/${USER_NAME}/.composer/
+RUN mkdir -p /home/${USER_NAME}/.composer
+
+RUN chown -R ${USER_NAME}:${USER_NAME} /home/${USER_NAME}/
+RUN find /home/${USER_NAME} -type f -exec chmod 644 {} \;
+RUN find /home/${USER_NAME} -type d -exec chmod 755 {} \;
+RUN chown -R ${USER_NAME}:${USER_NAME} /var/www
+RUN find /var/www -type f -exec chmod 644 {} \;
+RUN find /var/www -type d -exec chmod 755 {} \;
+
+RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+RUN echo "export PATH=${PATH}:/var/www/vendor/bin:$HOME/.composer/vendor/bin" >> ~/.bashrc
+
+
+USER ${USER_NAME}
+RUN echo "export PATH=${PATH}:/var/www/vendor/bin:$HOME/.composer/vendor/bin" >> ~/.bashrc
+RUN composer global require laravel/installer
+
+
+USER root
+
+###########################################################################
+# Node:
+###########################################################################
+
+RUN curl -sL https://deb.nodesource.com/setup_12.x | bash -
+RUN apt-get update && apt-get install -y nodejs
+
+###########################################################################
+# YARN:
+###########################################################################
+
+RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
+RUN echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
+
+RUN apt-get update && apt-get install -q -y yarn
+
+RUN echo "export PATH=$PATH:`yarn global bin`" >> ~/.bashrc
+
+###########################################################################
+# Clean up
+###########################################################################
+
+RUN apt-get autoremove -y && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+    rm /var/log/lastlog /var/log/faillog
+
+###########################################################################
+# Finish touches
+###########################################################################
+EXPOSE 3000 3001 9000
+
+USER $USER_NAME
+
+WORKDIR /var/www

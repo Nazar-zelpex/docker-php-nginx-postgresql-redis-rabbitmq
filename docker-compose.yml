@@ -1,0 +1,109 @@
+version: '3.1'
+
+services:
+  nginx:
+    container_name: ${PROJECT_NAME}_nginx
+    volumes:
+      - ${NGINX_CONFD_PATH}:/etc/nginx/conf.d
+      - ${NGINX_CONF_PATH}:/etc/nginx/nginx.conf
+      - ${NGINX_LOGS_PATH}:/var/log/nginx/
+      - ${PROJECTS_ROOT_PATH}:/var/www
+    build:
+      context: ./nginx
+      dockerfile: DockerFile
+      args:
+        - USER_NAME=${USER_NAME}
+        - USER_GROUP=${USER_GROUP}
+    tty: true
+    working_dir: /var/www
+    environment:
+      - USER_NAME=${USER_NAME}
+      - USER_GROUP=${USER_GROUP}
+    ports:
+      - 80:80
+      - 443:443
+    networks:
+      - project_network
+
+  admin:
+    image: node:${NODE_VERSION}
+    container_name: ${PROJECT_NAME}_admin
+    ports:
+      - 8001:8001
+      - 9229:9229
+    volumes:
+      - ${PROJECTS_ROOT_PATH}${NODE_NODE1_DIR}:/var/www/cms
+      - ${NODE_LOGS_PATH}1:/root/.npm/_logs/
+    working_dir: /var/www/cms
+    tty: true
+    environment:
+      - NODE_ENV=development
+    command: npm run dev
+    networks:
+      - project_network
+
+  postgres:
+    image: mdillon/postgis:11-alpine
+    container_name: ${PROJECT_NAME}_postgres
+    ports:
+      - 5432:5432
+    volumes:
+      - ${DB_DATA_PATH}:/var/lib/postgresql
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    networks:
+      - project_network
+
+  redis:
+    image: redis:alpine
+    container_name: ${PROJECT_NAME}_redis
+    volumes:
+      - ${REDIS_DATA_PATH}:/data
+    networks:
+      - project_network
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: ${PROJECT_NAME}_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    ports:
+      - 15672:15672
+    restart: always
+    volumes:
+      - ${RABBITMQ_DATA_PATH}:/var/lib/rabbitmq
+    networks:
+      - project_network
+
+  workspace:
+    container_name: ${PROJECT_NAME}_workspace
+    ports:
+      - 3000:3000
+      - 3001:3001
+    build:
+      context: workspace
+      dockerfile: DockerFile
+      args:
+        - USER_NAME=${USER_NAME}
+        - USER_GROUP=${USER_GROUP}
+        - COMPOSER_HOME=/home/${USER_NAME}/.composer/
+        - NODE_VERSION=${NODE_VERSION}
+    tty: true
+    volumes:
+      - ${PROJECTS_ROOT_PATH}:/var/www
+      - ${COMPOSER_PATH}:/home/${USER_NAME}/.composer/
+      - ${PHP_CONFD_PATH}:/usr/local/etc/php/conf.d/custom.ini
+      - ${XDEBUG_CONFD_PATH}:/usr/local/etc/php/conf.d/xdebug.ini
+    environment:
+      - COMPOSER_HOME=/home/${USER_NAME}/.composer/
+      - USER_NAME=${USER_NAME}
+      - USER_GROUP=${USER_GROUP}
+    networks:
+      - project_network
+
+networks:
+  project_network:
+    driver: bridge

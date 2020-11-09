@@ -1,0 +1,8 @@
+/.idea
+composer
+redis
+data/*/*
+logs/*/*
+*.log
+/.env
+!/.env.example
